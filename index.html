@@ -1,0 +1,153 @@
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>getUserMedia Demo</title>
+   
+  </head>
+  <body>
+    <h1>getUserMedia API</h1>
+    <video id="video" muted="true" controls="true"></video>
+	<video id="remoteVideo" muted="true" controls="true"></video>
+	
+    <script>
+	alert("haiiii");
+      var constraints = {audio:true,video:true};
+	  var localVideoStream,remoteVideoStream;
+	  var PeerConnection = window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
+	  navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+	  var SIGNALING_SERVER = 'wss://wsnodejs.nodejitsu.com:443';
+	  var servers = {"iceservers":"stun:stun.l.google.com:19302"};
+	  var channel,websocket;
+	  var localConnection,remoteConnection;
+	  function createServer()
+	  {
+		localConnection =new PeerConnection(servers);
+		var config = 
+		{
+			
+			openSocket: function (config) 
+			{
+				channel = config.channel || location.href.replace(/\/|:|#|%|\.|\[|\]/g, '');
+				websocket = new WebSocket(SIGNALING_SERVER);
+				websocket.channel = config.channel;
+				websocket.onopen = function () 
+				{
+					websocket.push(JSON.stringify(
+					{
+						open: true,
+						channel: config.channel
+					}));
+				};
+				websocket.onmessage = function (event) 
+				{
+					config.onmessage(JSON.parse(event.data));
+				};
+				websocket.push = websocket.send;
+				websocket.send = function (data) 
+				{
+					websocket.push(JSON.stringify(
+					{
+						data: data,
+						channel: config.channel
+					}));
+				};
+			}
+		};
+		//Signalling channel creation.
+		localConnection.openSignalingChannel  = function(config)
+		{
+			channel = config.channel || this.channel;
+			onMessageCallbacks[channel] = config.onmessage;
+			if (config.onopen) setTimeout(config.onopen, 1000);
+			return 
+			{
+				this.send = function(message) 
+				{
+					websocket.send(JSON.stringify(
+					{
+						sender: currentUserUUID,
+						channel: channel,
+						message: message
+					}));
+				};channel: channel
+			};
+		};
+		remoteConnection = new PeerConnection(servers);
+		localConnection.onicecandidate = function(event)
+		{
+			if (event.candidate) 
+			{
+				remoteConnection.addIceCandidate(new RTCIceCandidate(event.candidate));
+				//trace("Local ICE candidate: \n" + event.candidate.candidate);
+			}
+		}
+
+		remoteConnection.onicecandidate = function(event)
+		{
+			if (event.candidate) 
+			{
+				localConnection.addIceCandidate(new RTCIceCandidate(event.candidate));
+			}
+		}
+		
+		remoteConnection.onaddstream = function(event)
+		{
+			var remoteVideo = document.querySelector("remoteVideo");
+			remoteVideo.src = window.URL.createObjectURL(event.stream);
+			remoteVideoStream = event.stream;
+			remoteVideo.play();			
+		}
+
+	  }	
+		
+      function successCallback(stream)
+	  {
+			
+			localVideo = document.querySelector("video");
+			
+			localVideoStream = stream;
+			
+			localVideo.src = window.URL.createObjectURL(stream);
+			
+			localVideo.play();
+			
+			if(localConnection == null)
+			{
+				createServer();
+			}
+			localConnection.addStream(localVideoStream);
+			localConnection.createOffer(gotLocalDescription,logError);
+	  }
+	  function gotLocalDescription(description)
+	  {
+			localConnection.setLocalDescription(description);
+			alert("Offer from localPeerConnection: \n" + description.sdp);
+			remoteConnection.setRemoteDescription(description);
+			remoteConnection.createAnswer(gotRemoteDescription,logError);
+	  }
+	  
+	  function gotRemoteDescription(description)
+	  {
+		remoteConnection.setLocalDescription(description);
+		alert("Answer from remotePeerConnection: \n" + description.sdp);
+		localConnection.setRemoteDescription(description);
+	  }
+	  
+	  function logError(error) 
+	  {
+		alert("create offer error.name + : " + error.message);
+	  }
+
+
+
+	  function errorCallback(error)
+	  {
+			alert("failure");
+			console.log("local media error",error);
+	  }
+ 
+      navigator.getUserMedia(constraints,successCallback,errorCallback);
+    </script>
+  </body>
+</html>
